@@ -1420,7 +1420,7 @@ func cmdSearch(cfg store.Config) {
 				exitFunc(1)
 				return
 			}
-			opts.Org = os.Args[i+1]
+			opts.Org = strings.TrimSpace(os.Args[i+1])
 			i++
 		default:
 			queryParts = append(queryParts, os.Args[i])
@@ -1517,7 +1517,7 @@ func parseSaveArgs(args []string) (saveArgs, error) {
 			case "--topic":
 				parsed.topicKey = args[i]
 			case "--org":
-				parsed.org = args[i]
+				parsed.org = strings.TrimSpace(args[i])
 			}
 			continue
 		}
@@ -2638,7 +2638,7 @@ func cmdObsidianExport(cfg store.Config) {
 				exitFunc(1)
 				return
 			}
-			org = os.Args[i+1]
+			org = strings.TrimSpace(os.Args[i+1])
 			i++
 		case "--all":
 			allProjects = true
@@ -2988,7 +2988,7 @@ func cmdProjectsList(cfg store.Config) {
 				exitFunc(1)
 				return
 			}
-			org = os.Args[i+1]
+			org = strings.TrimSpace(os.Args[i+1])
 			i++
 		}
 	}
