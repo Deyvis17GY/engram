@@ -11,7 +11,7 @@ import (
 func TestCodexGuardCoreCompatibility(t *testing.T) {
 	const supported = `{"status":"ok","service":"engram","capabilities":{"runtime_session_resolution":true}}`
 	for _, tc := range []struct {
-		name, health, resolution, reason       string
+		name, health, resolution, reason      string
 		healthStatus, resolveStatus, requests int
 	}{
 		{"old", `{"status":"ok","service":"engram"}`, "", "Upgrade", 200, 200, 0},
