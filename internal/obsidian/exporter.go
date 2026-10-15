@@ -182,22 +182,8 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		if !tracked {
 			continue
 		}
-		absPath := filepath.Join(engRoot, relPath)
-		cleanRoot := filepath.Clean(engRoot)
-		cleanPath := filepath.Clean(absPath)
-		if !strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator)) {
-			result.Errors = append(result.Errors, fmt.Errorf("unsafe path rejected (would escape export root): %s", cleanPath))
-			continue
-		}
-		root, err := os.OpenRoot(engRoot)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("open export root for delete %s: %w", cleanPath, err))
-			continue
-		}
-		err = root.Remove(relPath)
-		_ = root.Close()
-		if err != nil && !os.IsNotExist(err) {
-			result.Errors = append(result.Errors, fmt.Errorf("delete %s: %w", cleanPath, err))
+		if err := removeExportFile(engRoot, relPath); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("delete %s: %w", filepath.Join(engRoot, relPath), err))
 		} else {
 			result.Deleted++
 			delete(state.Files, obs.ID)
@@ -218,9 +204,8 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		if !tracked || e.matchesFilters(obs) {
 			continue
 		}
-		absPath := filepath.Join(engRoot, relPath)
-		if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-			result.Errors = append(result.Errors, fmt.Errorf("delete %s: %w", absPath, err))
+		if err := removeExportFile(engRoot, relPath); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("delete %s: %w", filepath.Join(engRoot, relPath), err))
 		} else {
 			result.Deleted++
 			delete(state.Files, obs.ID)
@@ -371,9 +356,8 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		if _, stillSelected := state.SessionHubs[sessionID]; stillSelected {
 			continue
 		}
-		absPath := filepath.Join(engRoot, relPath)
-		if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-			result.Errors = append(result.Errors, fmt.Errorf("delete stale session hub %s: %w", absPath, err))
+		if err := removeExportFile(engRoot, relPath); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("delete stale session hub %s: %w", filepath.Join(engRoot, relPath), err))
 			// Keep the entry so the next export retries the deletion instead
 			// of orphaning the file once the pruned state is persisted.
 			state.SessionHubs[sessionID] = relPath
@@ -403,9 +387,8 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		if _, stillSelected := state.TopicHubs[prefix]; stillSelected {
 			continue
 		}
-		absPath := filepath.Join(engRoot, relPath)
-		if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-			result.Errors = append(result.Errors, fmt.Errorf("delete stale topic hub %s: %w", absPath, err))
+		if err := removeExportFile(engRoot, relPath); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("delete stale topic hub %s: %w", filepath.Join(engRoot, relPath), err))
 			// Keep the entry so the next export retries the deletion instead
 			// of orphaning the file once the pruned state is persisted.
 			state.TopicHubs[prefix] = relPath
@@ -422,6 +405,32 @@ func (e *Exporter) Export() (*ExportResult, error) {
 	}
 
 	return result, nil
+}
+
+// removeExportFile deletes relPath beneath engRoot through a traversal-safe
+// root handle. relPath is read from the persisted sync state, so a tampered
+// entry that would escape the export root is refused instead of followed
+// (defence in depth: an explicit prefix check plus os.Root confinement). A
+// missing file counts as already removed and returns nil.
+func removeExportFile(engRoot, relPath string) error {
+	cleanRoot := filepath.Clean(engRoot)
+	cleanPath := filepath.Clean(filepath.Join(engRoot, relPath))
+	// Reject anything that is not strictly beneath the root, including the root
+	// itself (an empty or "." relPath): only tracked files under the export
+	// root may be removed. os.Root enforces this too; the check keeps the clear
+	// error and does not lean on stdlib internals.
+	if !strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator)) {
+		return fmt.Errorf("unsafe path rejected (would escape export root): %s", cleanPath)
+	}
+	root, err := os.OpenRoot(engRoot)
+	if err != nil {
+		return fmt.Errorf("open export root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.Remove(relPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func writeSessionHub(sessionsDir, name, content string) error {
