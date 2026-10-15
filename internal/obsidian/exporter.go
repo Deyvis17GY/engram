@@ -1,6 +1,7 @@
 package obsidian
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -184,6 +185,10 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		}
 		if err := removeExportFile(engRoot, relPath); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("delete %s: %w", filepath.Join(engRoot, relPath), err))
+			if errors.Is(err, errUnsafeExportPath) {
+				// Permanently unsafe entry: drop it so it is not retried every export.
+				delete(state.Files, obs.ID)
+			}
 		} else {
 			result.Deleted++
 			delete(state.Files, obs.ID)
@@ -206,6 +211,10 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		}
 		if err := removeExportFile(engRoot, relPath); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("delete %s: %w", filepath.Join(engRoot, relPath), err))
+			if errors.Is(err, errUnsafeExportPath) {
+				// Permanently unsafe entry: drop it so it is not retried every export.
+				delete(state.Files, obs.ID)
+			}
 		} else {
 			result.Deleted++
 			delete(state.Files, obs.ID)
@@ -358,9 +367,12 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		}
 		if err := removeExportFile(engRoot, relPath); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("delete stale session hub %s: %w", filepath.Join(engRoot, relPath), err))
-			// Keep the entry so the next export retries the deletion instead
-			// of orphaning the file once the pruned state is persisted.
-			state.SessionHubs[sessionID] = relPath
+			if !errors.Is(err, errUnsafeExportPath) {
+				// Transient failure: keep the entry so the next export retries
+				// instead of orphaning the file once the pruned state persists.
+				// A permanently unsafe entry is dropped instead of retried.
+				state.SessionHubs[sessionID] = relPath
+			}
 		} else {
 			result.Deleted++
 		}
@@ -389,9 +401,12 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		}
 		if err := removeExportFile(engRoot, relPath); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("delete stale topic hub %s: %w", filepath.Join(engRoot, relPath), err))
-			// Keep the entry so the next export retries the deletion instead
-			// of orphaning the file once the pruned state is persisted.
-			state.TopicHubs[prefix] = relPath
+			if !errors.Is(err, errUnsafeExportPath) {
+				// Transient failure: keep the entry so the next export retries
+				// instead of orphaning the file once the pruned state persists.
+				// A permanently unsafe entry is dropped instead of retried.
+				state.TopicHubs[prefix] = relPath
+			}
 		} else {
 			result.Deleted++
 		}
@@ -407,11 +422,17 @@ func (e *Exporter) Export() (*ExportResult, error) {
 	return result, nil
 }
 
+// errUnsafeExportPath marks a relPath that fails the escape-root check. It is a
+// permanent property of the state entry (not a transient I/O failure), so
+// callers drop the entry instead of retrying it on every export.
+var errUnsafeExportPath = errors.New("unsafe path rejected (would escape export root)")
+
 // removeExportFile deletes relPath beneath engRoot through a traversal-safe
 // root handle. relPath is read from the persisted sync state, so a tampered
 // entry that would escape the export root is refused instead of followed
 // (defence in depth: an explicit prefix check plus os.Root confinement). A
-// missing file counts as already removed and returns nil.
+// missing file counts as already removed and returns nil. An escape-check
+// failure is reported as errUnsafeExportPath.
 func removeExportFile(engRoot, relPath string) error {
 	cleanRoot := filepath.Clean(engRoot)
 	cleanPath := filepath.Clean(filepath.Join(engRoot, relPath))
@@ -420,7 +441,7 @@ func removeExportFile(engRoot, relPath string) error {
 	// root may be removed. os.Root enforces this too; the check keeps the clear
 	// error and does not lean on stdlib internals.
 	if !strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator)) {
-		return fmt.Errorf("unsafe path rejected (would escape export root): %s", cleanPath)
+		return fmt.Errorf("%w: %s", errUnsafeExportPath, cleanPath)
 	}
 	root, err := os.OpenRoot(engRoot)
 	if err != nil {
