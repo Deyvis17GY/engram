@@ -1,5 +1,79 @@
 # Native macOS baseline (#2121)
 
+## Native adapter lane (#2150, macOS portion only)
+
+**Native macOS ARM64 Adapter Tests** is a separate, initially non-required
+`macos-adapter-tests` job on `macos-15`. It inherits ordinary PR, merge-group
+and main events/concurrency without changing the Go foundation or six required
+App15368 contexts, queue, security/version/integrity guards or Race cadence.
+Non-required does not mean ignored failures.
+
+The lane verifies actual Darwin ARM64 Go/Node execution, records SHA/image/tool
+versions, and requires Go **1.26.10**, Node **24**, npm, the full source checkout,
+contract JSON and locked local TypeBox **1.3.34**. It installs only existing Pi
+test dependencies with `npm ci --ignore-scripts --legacy-peer-deps`, prepares
+repository Go modules, and builds the existing Pi test server:
+
+```bash
+go mod download
+go build -mod=readonly -o "$RUNNER_TEMP/pi-test-server" ./plugin/pi/test/support/real-server
+```
+
+From `plugin/pi`, run the existing `npm test` script with CLI-only TAP reporting:
+`ENGRAM_PI_TEST_SERVER_BINARY="$RUNNER_TEMP/pi-test-server" node --test --test-reporter=tap --test-concurrency=1 test/*.test.mjs`.
+The contract test pins equivalence to the package script. This also executes the packaged positive
+workflow case. Other existing fixtures keep their own build/startup deadlines.
+From the repository root, reuse the current OpenCode CI selection unchanged:
+
+```bash
+node --test --test-reporter=tap plugin/opencode/engram.test.mjs plugin/opencode/engram.v2.test.mjs plugin/opencode/engram.v2.real-server.test.mjs
+```
+
+The additional OpenCode `engram.test.mts` is not in that selected CI command.
+Each test retains its own store/server/process cleanup; the lane uses a physical
+private temporary HOME/temp/fallback store, preserved Go cache locations and
+sanitized adapter settings. Shared prebuilt bytes never mean shared servers.
+No #1903/PR #1906 fixture/PATH work is copied or integrated.
+
+The **15-minute outer**, **2-minute Pi fixture build**, **5-minute Pi** and
+**5-minute OpenCode** step ceilings are provisional containment, not measured
+Darwin timing guarantees. Existing fixture deadlines stay unchanged. Timeout,
+test/build/setup failure or cancellation is not successful coverage; no automatic
+budget increase, blanket skip or continue-on-error is permitted.
+
+TAP reporting is selected only through CLI flags, never inherited NODE_OPTIONS.
+The inline reporter retains pass/fail/skip counts and exact top-level skip
+identities/reasons, reconciles counters with all nested execution records,
+checks completed plans and required fixture cases,
+and also requires both actual test-step outcomes to be success. Missing,
+malformed or truncated execution output and unexpected skips fail completeness.
+The sole accepted outer-suite skip is the explicitly opt-in installed Pi host
+journey. Mandatory Go/contract/TypeBox/source-server absence is incomplete.
+Package-boundary tests deliberately assert child failures/skips; those are not
+new native positive workflows. The reporter emits JSON to the log/job summary;
+cancellation or outer timeout can prevent that report, never imply success.
+
+First normal PR [run 40456433724](https://github.com/Gentleman-Programming/engram/actions/runs/40456433724), attempt 1,
+head `493992f9`, checkout `9b59e22c`, executed Pi on Darwin ARM64: 615 pass /
+23 fail / 1 skip in 106.57s; OpenCode was skipped. Inherited NODE_OPTIONS
+reporter flags collided with child fixtures\u0027 explicit TAP flags. CLI-only selection
+fixed that wiring. Follow-up run 40459952974 (head `6bf00647`) executed Pi
+638 pass / 1 opt-in skip and OpenCode 273 pass / 0 skip; only the summary failed
+by rejecting a legitimate repeated parameterized name. That guard is corrected;
+new native job execution remains pending, not established by replaying its TAP.
+No adapter execution on Darwin is established by local Node structural checks.
+Foundation PR run 40443462722 (head d9f0ab3baab017d8245f46b4381c8deccd48267f),
+merge-group 40445951871 and main 40446353609 (both at
+51bcdba8ffc930bd7b65f4c99446e5cabcc115fe, attempt 1) had successful native
+foundation jobs; they do not execute this adapter candidate. Observe one normal
+PR, merge-group and main execution of this new lane after authorized delivery,
+then explicitly choose promotion, focused fix or defer under #2020. Do not
+dispatch/rerun to manufacture evidence or promote automatically.
+
+Windows #2155/PR #2156/#2159, Darwin amd64, installed-host lifecycle, selected
+Core/Pi artifacts #2055, distributed-byte smoke #2122 and release eligibility
+remain separate. Mac-only completion cannot close the whole of #2150.
+
 ## Candidate, not hosted qualification
 
 **Native macOS ARM64 Tests** adds one initially non-required job to CI on
